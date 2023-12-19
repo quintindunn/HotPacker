@@ -14,6 +14,9 @@ FORMAT = "utf-8"
 
 
 class PackedData:
+    def __init__(self):
+        self.size = 32
+
     def packed(self):
         ...
 
@@ -22,7 +25,6 @@ class FileMetadataItem(PackedData):
     def __init__(self, filename: str, head_size: int = 0, head_offset: int = 0, data_size: int = 0, unknown_0: int = 0,
                  data_offset: int = 0, unknown_1: int = 0, unknown_2: int = 99, unknown_3: int = 0):
         super().__init__()
-        self.size = 0x20  # 32 bytes
 
         self.filename = filename
 
@@ -45,6 +47,7 @@ class CoreMetadata(PackedData):
     def __init__(self, filename: str, unknown_0: int = 0, first_file_head_offset: int = 0, unknown_1: int = 0,
                  file_size: int = 0, filename_table_offset: int = 0, file_count: int = 0):
         super().__init__()
+
         self.filename = filename
 
         self.unknown_0 = unknown_0
@@ -55,8 +58,9 @@ class CoreMetadata(PackedData):
         self.file_count = file_count
 
     def packed(self):
-        return struct.pack("<IIIIIIBB",
-                           self.unknown_0, self.first_file_head_offset, self.unknown_1, self.file_size, self.filename_table_offset,
+        return struct.pack("<IIIIIIII",
+                           self.unknown_0, self.first_file_head_offset, self.unknown_1, self.file_size,
+                           self.filename_table_offset,
                            self.file_count, 0, 0)
 
 
@@ -95,14 +99,36 @@ class HOTFile(PackedData):
             metadata_items.append(metadata_item)
         return metadata_items
 
+    def generate_head_table(self):
+
+
     def build(self):
+        # Add "HOT " prefix to file
         self._write("HOT ".encode(FORMAT))
+
+        # Generate the metadata for the actual file
         self._write(CoreMetadata(filename=file_name, file_count=len(self.file_names)))
 
+        # Generate the metadata for the subfiles
         for file_metadata in self.generate_metadata_placeholder():
             self._write(file_metadata)
 
-        self._write(self.generate_filename_table())
+        # Generate the filename table
+        for byte in list(self.generate_filename_table()):
+            self._write(byte)
+
+    def calculate_offset(self, real_idx: int | None = None):
+        if real_idx is None:
+            real_idx = len(self.content) - 1
+
+        offset = 0
+        for i in range(0, real_idx + 1):
+            i = self.content[i]
+            if isinstance(i, bytes) or isinstance(i, int):
+                offset += 1
+            elif isinstance(i, PackedData):
+                offset += i.size
+        return offset
 
     def _write(self, content, idx: int | None = None):
         if idx is not None:
@@ -116,6 +142,8 @@ class HOTFile(PackedData):
                 io.write(byte_data)
             elif isinstance(byte_data, PackedData):
                 io.write(byte_data.packed())
+            elif isinstance(byte_data, int):
+                io.write(chr(byte_data).encode(FORMAT))
         return io
 
 
