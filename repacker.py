@@ -1,4 +1,5 @@
-import textwrap
+from head_sizes import get_head_size
+
 from io import BytesIO
 
 import os
@@ -12,14 +13,63 @@ files = os.listdir(files_dir)
 FORMAT = "utf-8"
 
 
-class HOTFile:
+class PackedData:
+    def packed(self):
+        ...
+
+
+class FileMetadataItem(PackedData):
+    def __init__(self, filename: str, head_size: int = 0, head_offset: int = 0, data_size: int = 0, unknown_0: int = 0,
+                 data_offset: int = 0, unknown_1: int = 0, unknown_2: int = 99, unknown_3: int = 0):
+        super().__init__()
+        self.size = 0x20  # 32 bytes
+
+        self.filename = filename
+
+        self.head_size = head_size
+        self.head_offset = head_offset
+        self.data_size = data_size
+        self.unknown_0 = unknown_0
+        self.data_offset = data_offset
+        self.unknown_1 = unknown_1
+        self.unknown_2 = unknown_2  # tbd
+        self.unknown_3 = unknown_3
+
+    def packed(self):
+        return struct.pack("<IIIIIIII",
+                           self.head_size, self.head_offset, self.data_size, self.unknown_0, self.data_offset,
+                           self.unknown_1, self.unknown_2, self.unknown_3)
+
+
+class CoreMetadata(PackedData):
+    def __init__(self, filename: str, unknown_0: int = 0, first_file_head_offset: int = 0, unknown_1: int = 0,
+                 file_size: int = 0, filename_table_offset: int = 0, file_count: int = 0):
+        super().__init__()
+        self.filename = filename
+
+        self.unknown_0 = unknown_0
+        self.first_file_head_offset = first_file_head_offset
+        self.unknown_1 = unknown_1
+        self.file_size = file_size
+        self.filename_table_offset = filename_table_offset
+        self.file_count = file_count
+
+    def packed(self):
+        return struct.pack("<IIIIIIBB",
+                           self.unknown_0, self.first_file_head_offset, self.unknown_1, self.file_size, self.filename_table_offset,
+                           self.file_count, 0, 0)
+
+
+class HOTFile(PackedData):
     NULL_BYTE = struct.pack("B", 0)
 
     def __init__(self, input_dir: str):
-        self.file_names = os.listdir(input_dir)
-        self.files_root = input_dir
+        super().__init__()
 
         self.content = []
+
+        self.file_names = os.listdir(input_dir)
+        self.files_root = input_dir
 
     def generate_filename_table(self):
         table_content = BytesIO()
@@ -32,8 +82,26 @@ class HOTFile:
 
         return table_content.getvalue()
 
+    def generate_metadata_placeholder(self):
+        metadata_items = []
+        for file in self.file_names:
+            file_path = os.path.join(self.files_root, file)
+            file_head_size = get_head_size(file.split(".")[-1])
+
+            real_file_size = os.path.getsize(file_path)
+            embedded_file_size = real_file_size - file_head_size
+
+            metadata_item = FileMetadataItem(filename=file, head_size=file_head_size, data_size=embedded_file_size)
+            metadata_items.append(metadata_item)
+        return metadata_items
+
     def build(self):
         self._write("HOT ".encode(FORMAT))
+        self._write(CoreMetadata(filename=file_name, file_count=len(self.file_names)))
+
+        for file_metadata in self.generate_metadata_placeholder():
+            self._write(file_metadata)
+
         self._write(self.generate_filename_table())
 
     def _write(self, content, idx: int | None = None):
@@ -43,12 +111,15 @@ class HOTFile:
 
     def to_io(self):
         io = BytesIO()
-        io.write(b''.join(self.content))
+        for byte_data in self.content:
+            if isinstance(byte_data, bytes):
+                io.write(byte_data)
+            elif isinstance(byte_data, PackedData):
+                io.write(byte_data.packed())
         return io
 
 
 if __name__ == '__main__':
-
     hot = HOTFile(input_dir=files_dir)
     hot.build()
 
