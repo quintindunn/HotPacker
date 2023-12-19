@@ -1,3 +1,5 @@
+import json
+
 from head_sizes import get_head_size
 
 from io import BytesIO
@@ -44,7 +46,7 @@ class FileMetadataItem(PackedData):
 
 
 class CoreMetadata(PackedData):
-    def __init__(self, filename: str, unknown_0: int = 0, first_file_head_offset: int = 0, unknown_1: int = 0,
+    def __init__(self, filename: str, unknown_0: int = 0, first_file_head_offset: int = 0, file_data_table_start: int = 0,
                  file_size: int = 0, filename_table_offset: int = 0, file_count: int = 0):
         super().__init__()
 
@@ -52,27 +54,27 @@ class CoreMetadata(PackedData):
 
         self.unknown_0 = unknown_0
         self.first_file_head_offset = first_file_head_offset
-        self.unknown_1 = unknown_1
+        self.file_data_table_start = file_data_table_start
         self.file_size = file_size
         self.filename_table_offset = filename_table_offset
         self.file_count = file_count
 
     def packed(self):
         return struct.pack("<IIIIIIII",
-                           self.unknown_0, self.first_file_head_offset, self.unknown_1, self.file_size,
+                           self.unknown_0, self.first_file_head_offset, self.file_data_table_start, self.file_size,
                            self.filename_table_offset,
                            self.file_count, 0, 0)
 
 
 class HOTFile(PackedData):
-    NULL_BYTE = struct.pack("B", 0)
+    NULL_BYTE = b'\x00'
 
     def __init__(self, input_dir: str):
         super().__init__()
 
         self.content = []
-
-        self.file_names = os.listdir(input_dir)
+        with open("filenames.json", 'r') as f:
+            self.file_names = json.load(f)
         self.files_root = input_dir
 
     def generate_filename_table(self):
@@ -99,8 +101,36 @@ class HOTFile(PackedData):
             metadata_items.append(metadata_item)
         return metadata_items
 
-    def generate_head_table(self):
+    def add_head_table(self):
+        first_head_item = True
+        core_meta = None
+        for head_item in self.content:
+            if isinstance(head_item, CoreMetadata):
+                core_meta = head_item
+                continue
+            elif not isinstance(head_item, FileMetadataItem):
+                continue
 
+            if head_item.head_size == 0:
+                continue
+
+            file_path = os.path.join(self.files_root, head_item.filename)
+            with open(file_path, 'rb') as embedded_item:
+                head_content = embedded_item.read(head_item.head_size)
+
+            head_item.head_offset = self.calculate_offset()
+
+            if first_head_item:
+                first_head_item = False
+                core_meta.first_file_head_offset = head_item.head_offset
+
+            for byte in head_content:
+                self._write(byte)
+
+        for _ in range(4):
+            self._write(b"\x00")
+
+        core_meta.file_data_table_start = self.calculate_offset()
 
     def build(self):
         # Add "HOT " prefix to file
@@ -116,6 +146,9 @@ class HOTFile(PackedData):
         # Generate the filename table
         for byte in list(self.generate_filename_table()):
             self._write(byte)
+
+        # Generate the head table
+        self.add_head_table()
 
     def calculate_offset(self, real_idx: int | None = None):
         if real_idx is None:

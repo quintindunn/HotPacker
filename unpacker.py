@@ -58,6 +58,7 @@ with open(file, "rb") as f:
 
     for filename in files:
         f.seek(next_header_start_offset)
+        print(next_header_start_offset)
 
         # Unpack the header of the file (first 32 bytes) and unpack it into unsigned integers (little endian).
         # Unsigned integer is 4 bytes (8*"I")
