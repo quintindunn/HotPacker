@@ -4,7 +4,7 @@
 #### Next 32 bytes is the file's metadata, containing 8 unsigned integers with the following usages:
     1. Unknown meaning, from my experiments this is always 0x01000000 or 1
     2. The offset of the first file's head.
-    3. Unknown meaning, no patterns found.
+    3. The offset of the first file's data
     4. The size of the entire file in bytes.
     5. The offset for the filename table.
     6. The number of files in the HOT file.

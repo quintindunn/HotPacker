@@ -9,7 +9,7 @@ This is how to parse a HOT file, all binary/hex is little endian.
 #### The next 32 bytes is 8 unsigned integers (4 bytes each), they represent the following values:
 1. Unknown meaning, from my experiments this is always `0x01000000` or `1`
 2. The offset of the first file's head.
-3. Unknown meaning, no patterns found.
+3. The offset of the first file's data
 4. The size of the entire file in bytes.
 5. The offset for the filename table.
 6. The number of files in the HOT file.
