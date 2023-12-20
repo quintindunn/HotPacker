@@ -73,8 +73,7 @@ class HOTFile(PackedData):
         super().__init__()
 
         self.content = []
-        with open("filenames.json", 'r') as f:
-            self.file_names = json.load(f)
+        self.file_names = os.listdir(input_dir)
         self.files_root = input_dir
 
     def generate_filename_table(self):
@@ -117,6 +116,7 @@ class HOTFile(PackedData):
             file_path = os.path.join(self.files_root, head_item.filename)
             with open(file_path, 'rb') as embedded_item:
                 head_content = embedded_item.read(head_item.head_size)
+                print(head_item.head_size, len(head_content))
 
             head_item.head_offset = self.calculate_offset()
 
@@ -132,16 +132,39 @@ class HOTFile(PackedData):
 
         core_meta.file_data_table_start = self.calculate_offset()
 
+    def add_data_table(self):
+        for head_item in self.content:
+            if not isinstance(head_item, FileMetadataItem):
+                continue
+
+            print(head_item.filename, "Packing...")
+
+            if head_item.data_size == 0:
+                continue
+
+            file_path = os.path.join(self.files_root, head_item.filename)
+            head_item.data_offset = self.calculate_offset()
+
+            with open(file_path, 'rb') as embedded_item:
+                file_data = embedded_item.read(head_item.data_size)
+                self._write(file_data)
+
+        for _ in range(4):
+            self._write(b"\x00")
+
     def build(self):
         # Add "HOT " prefix to file
         self._write("HOT ".encode(FORMAT))
 
         # Generate the metadata for the actual file
-        self._write(CoreMetadata(filename=file_name, file_count=len(self.file_names)))
+        core_meta = CoreMetadata(filename=file_name, file_count=len(self.file_names))
+        self._write(core_meta)
 
         # Generate the metadata for the subfiles
         for file_metadata in self.generate_metadata_placeholder():
             self._write(file_metadata)
+
+        core_meta.filename_table_offset = self.calculate_offset()
 
         # Generate the filename table
         for byte in list(self.generate_filename_table()):
@@ -150,6 +173,9 @@ class HOTFile(PackedData):
         # Generate the head table
         self.add_head_table()
 
+        # Generate the data table
+        self.add_data_table()
+
     def calculate_offset(self, real_idx: int | None = None):
         if real_idx is None:
             real_idx = len(self.content) - 1
@@ -157,7 +183,9 @@ class HOTFile(PackedData):
         offset = 0
         for i in range(0, real_idx + 1):
             i = self.content[i]
-            if isinstance(i, bytes) or isinstance(i, int):
+            if isinstance(i, bytes):
+                offset += len(i)
+            elif isinstance(i, int):
                 offset += 1
             elif isinstance(i, PackedData):
                 offset += i.size
@@ -184,5 +212,6 @@ if __name__ == '__main__':
     hot = HOTFile(input_dir=files_dir)
     hot.build()
 
+    print("Saving output...")
     with open("out.hot", 'wb') as f:
         f.write(hot.to_io().getvalue())
